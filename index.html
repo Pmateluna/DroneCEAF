@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Simulador CEAF DroneLab Chile - Telemetría Agrícola</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Canvas de Renderizado WebGL2 / Three.js -->
+  <canvas id="webgl-canvas"></canvas>
+
+  <!-- Barra Superior de Navegación y Marca CEAF Chile -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-text">
+        <h1>CEAF DroneLab Chile</h1>
+      </div>
+    </div>
+
+    <!-- Selector de Visión Multiespectral -->
+    <div class="spectral-bar" id="spectral-bar">
+      <button class="spectral-pill active" data-mode="rgb" title="Color Natural (Tecla 1)">
+        <span>RGB Natural</span>
+      </button>
+      <button class="spectral-pill" data-mode="ndvi" title="Índice de Vigor NDVI (Tecla 2)">
+        <span>Salud (NDVI)</span>
+      </button>
+      <button class="spectral-pill" data-mode="thermal" title="Infrarrojo Térmico (Tecla 3)">
+        <span>Térmico IR</span>
+      </button>
+      <button class="spectral-pill" data-mode="elevation" title="Elevación y Dosel (Tecla 4)">
+        <span>LiDAR Dosel</span>
+      </button>
+    </div>
+
+    <!-- Botones de Encendido de Motores, Cámara FPV, Piloto Autónomo y RTH -->
+    <div class="autopilot-bar">
+      <button id="btn-motor-power" class="icon-btn action-pill power-btn" title="Encender/Apagar Motores del Dron (Tecla E)">
+        <span id="motor-power-text">Encender Motores</span>
+      </button>
+      <button id="btn-camera-toggle" class="icon-btn action-pill camera-pill" title="Cambiar Cámara FPV / 3ª Persona (Tecla C)">
+        <span id="camera-btn-text">3ª Persona</span>
+      </button>
+      <button id="btn-auto-grid" class="icon-btn action-pill" title="Iniciar Misión de Vuelo Autónomo (Tecla M)">
+        <span>Misión Cuadrícula</span>
+      </button>
+      <button id="btn-rth" class="icon-btn action-pill warning" title="Retorno Automático a Base (Tecla H)">
+        <span>Retorno RTH</span>
+      </button>
+    </div>
+    
+    <div class="status-bar">
+      <!-- Gauge Batería Dron -->
+      <div class="battery-pill nominal" id="battery-pill" title="Estado de Batería">
+        <span id="battery-pct-text">100%</span>
+      </div>
+
+      <div class="status-pill healthy" id="system-status-pill">
+        <span class="pulse-dot"></span>
+        <span id="system-status-text">APAGADO</span>
+      </div>
+      <button id="toggle-dashboard-btn" class="icon-btn" title="Abrir Panel (Tecla T)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18"/>
+          <path d="M18 17l-5-5-4 4-5-5"/>
+        </svg>
+        <span>Panel Telemetría</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Paneles HUD sobre el Canvas -->
+  <div class="hud-container" id="hud-container">
+    <div class="hud-panel flight-telemetry">
+      <div class="hud-title">DATOS DE VUELO EN TIEMPO REAL</div>
+      <div class="hud-metrics">
+        <div class="metric-box">
+          <span class="metric-label">ALTITUD</span>
+          <span class="metric-value" id="hud-alt">0.0<span class="unit">m</span></span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">VELOCIDAD</span>
+          <span class="metric-value" id="hud-speed">0.0<span class="unit">m/s</span></span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">RUMBO</span>
+          <span class="metric-value" id="hud-heading">000<span class="unit">°</span></span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">POSICIÓN HUERTO</span>
+          <span class="metric-value mono" id="hud-pos">X: 0 | Z: 0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel de Progreso de Misión y Estimación de Batería -->
+    <div class="hud-panel mission-telemetry" id="mission-hud-panel">
+      <div class="hud-title">ESTADO DE MISIÓN Y PRONÓSTICO DE BATERÍA</div>
+      <div class="hud-metrics">
+        <div class="metric-box">
+          <span class="metric-label">ESTADO MOTORES</span>
+          <span class="metric-value" id="hud-flight-mode" style="color:var(--accent-amber);">MOTORES APAGADOS</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">COBERTURA HUERTO</span>
+          <span class="metric-value" id="hud-mission-progress">0%</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">REQUERIDO RTH BASE</span>
+          <span class="metric-value" id="hud-est-rth">~1.2%</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">REQUERIDO MISIÓN GRID</span>
+          <span class="metric-value" id="hud-est-mission">~18.5%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tarjeta HUD del Sensor Multiespectral -->
+    <div class="hud-panel sensor-telemetry" id="sensor-hud-panel">
+      <div class="hud-title" id="sensor-hud-title">SENSOR ACTIVO (COLOR NATURAL RGB)</div>
+      <div class="ndvi-hud-display">
+        <div class="ndvi-value-large" id="hud-ndvi-value">--.--</div>
+        <div class="ndvi-status-tag" id="hud-ndvi-status">MUESTREANDO...</div>
+      </div>
+      <div class="ndvi-bar-container">
+        <div class="ndvi-bar-fill" id="hud-ndvi-bar" style="width: 0%;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Joysticks Táctiles en Pantalla -->
+  <div class="controls-container">
+    <!-- Joystick Izquierdo: Altitud y Guiñada -->
+    <div class="joystick-wrapper left-stick">
+      <div class="joystick-base" id="joystick-left-base">
+        <div class="joystick-knob" id="joystick-left-knob"></div>
+        <div class="joystick-label top">ASCENSO +</div>
+        <div class="joystick-label bottom">DESCENSO -</div>
+        <div class="joystick-label left">GIRO IZQ</div>
+        <div class="joystick-label right">GIRO DER</div>
+      </div>
+    </div>
+
+    <!-- Guía de Teclado (Centro Inferior) -->
+    <div class="keyboard-guide" id="keyboard-guide">
+      <div class="guide-title">CONTROLES (TECLADO / PANTALLA TÁCTIL)</div>
+      <div class="key-rows">
+        <div class="key-row"><kbd>W</kbd><kbd>S</kbd> Cabeceo | <kbd>A</kbd><kbd>D</kbd> Alabeo | <kbd>↑</kbd><kbd>↓</kbd> Altitud | <kbd>←</kbd><kbd>→</kbd> Giro</div>
+        <div class="key-row"><kbd>E</kbd> Encender Motores | <kbd>C</kbd> Cámara FPV | <kbd>M</kbd> Cuadrícula | <kbd>H</kbd> RTH</div>
+      </div>
+    </div>
+
+    <!-- Joystick Derecho: Cabeceo y Alabeo -->
+    <div class="joystick-wrapper right-stick">
+      <div class="joystick-base" id="joystick-right-base">
+        <div class="joystick-knob" id="joystick-right-knob"></div>
+        <div class="joystick-label top">AVANZAR</div>
+        <div class="joystick-label bottom">RETROCEDER</div>
+        <div class="joystick-label left">INCL. IZQ</div>
+        <div class="joystick-label right">INCL. DER</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel Lateral de Telemetría y Analítica -->
+  <aside class="dashboard-panel" id="dashboard-panel">
+    <div class="dashboard-header">
+      <div class="panel-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M7 12h10M12 7v10"/>
+        </svg>
+        Registro de Telemetría Frutícola CEAF
+      </div>
+      <button class="close-btn" id="close-dashboard-btn">&times;</button>
+    </div>
+
+    <div class="dashboard-body">
+      <!-- Tarjeta del Gráfico -->
+      <div class="chart-card">
+        <div class="card-header">
+          <span id="chart-title-text">Tendencia del Índice NDVI en Tiempo Real (0.0 a 1.0)</span>
+          <span class="sample-rate-badge">2 Hz</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="ndvi-chart-canvas" width="340" height="140"></canvas>
+        </div>
+        <div class="chart-legend">
+          <span class="legend-item stressed"><span class="legend-color"></span>Estrés / Caliente</span>
+          <span class="legend-item moderate"><span class="legend-color"></span>Moderado</span>
+          <span class="legend-item healthy"><span class="legend-color"></span>Saludable / Frío</span>
+        </div>
+      </div>
+
+      <!-- Tarjeta de la Tabla de Registros -->
+      <div class="table-card">
+        <div class="card-header">
+          <span>Muestras Registradas en Terreno</span>
+          <span class="log-count" id="log-count-badge">0 entradas</span>
+        </div>
+        <div class="table-scroll-container">
+          <table class="telemetry-table">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Posición (X, Z)</th>
+                <th>Lectura</th>
+                <th>Estado Frutícola</th>
+              </tr>
+            </thead>
+            <tbody id="telemetry-log-tbody">
+              <tr class="empty-row">
+                <td colspan="4">Encienda motores y vuele sobre el huerto para iniciar el muestreo...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
