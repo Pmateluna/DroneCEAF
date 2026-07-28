@@ -1,3 +1,7 @@
+# Large / Unused Assets
+tree_pack_v1.glb
+**/tree_pack_v1.glb
+
 # Dependencies
 node_modules/
 
