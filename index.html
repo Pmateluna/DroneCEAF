@@ -8,8 +8,108 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script>
+    window.selectDrone = function(type) {
+      console.log('[CEAF DroneLab Chile] Aircraft selected:', type);
+      var modal = document.getElementById('drone-selector-modal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+        modal.style.opacity = '0';
+        modal.style.pointerEvents = 'none';
+      }
+      if (window.telemetryStore) {
+        window.telemetryStore.setDroneType(type);
+      } else {
+        window.initialDroneType = type;
+      }
+    };
+  </script>
 </head>
 <body>
+  <!-- Pantalla de Carga Aeronáutica CEAF DroneLab Chile -->
+  <div id="boot-loader-overlay" class="boot-loader-overlay">
+    <div class="boot-grid-bg"></div>
+    <div class="boot-scanline"></div>
+    <div class="boot-card">
+      <div class="boot-emblem-wrap">
+        <div class="boot-ring boot-ring-outer"></div>
+        <div class="boot-ring boot-ring-mid"></div>
+        <div class="boot-ring boot-ring-inner"></div>
+        <svg class="boot-drone-svg" viewBox="0 0 120 120" fill="none">
+          <!-- Brazos diagonales del dron -->
+          <line x1="26" y1="26" x2="94" y2="94" stroke="url(#bootCyanGrad)" stroke-width="3.5" stroke-linecap="round"/>
+          <line x1="94" y1="26" x2="26" y2="94" stroke="url(#bootCyanGrad)" stroke-width="3.5" stroke-linecap="round"/>
+          <!-- Rotores con giro -->
+          <circle cx="26" cy="26" r="14" stroke="#38bdf8" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"/>
+          <circle cx="94" cy="26" r="14" stroke="#38bdf8" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"/>
+          <circle cx="26" cy="94" r="14" stroke="#4ade80" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"/>
+          <circle cx="94" cy="94" r="14" stroke="#4ade80" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"/>
+          <!-- Chasis central octogonal -->
+          <polygon points="52,42 68,42 78,52 78,68 68,78 52,78 42,68 42,52" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5"/>
+          <!-- Lente multiespectral nadir central -->
+          <circle cx="60" cy="60" r="7" fill="#22c55e" opacity="0.9"/>
+          <circle cx="60" cy="60" r="12" stroke="#4ade80" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <defs>
+            <linearGradient id="bootCyanGrad" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="100%" stop-color="#22c55e"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+
+      <div class="boot-badge">CEAF DRONELAB CHILE • REGIÓN DE O'HIGGINS</div>
+      <h2 class="boot-title">Simulador de Telemetría y Precisión Agrícola</h2>
+      <p class="boot-subtitle">BABYLON.JS 9 WEBGL2 ENGINE • VALLE DEL CACHAPOAL (UTM 19S)</p>
+
+      <!-- Barra de Progreso Llamativa -->
+      <div class="boot-progress-section">
+        <div class="boot-progress-header">
+          <span id="boot-stage-text" class="boot-stage-text">Inicializando núcleo físico y radiometría del predio...</span>
+          <span id="boot-progress-pct" class="boot-progress-pct">8%</span>
+        </div>
+        <div class="boot-progress-track">
+          <div id="boot-progress-fill" class="boot-progress-fill" style="width: 8%;">
+            <div class="boot-progress-shimmer"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicadores de Subsistemas en Tiempo Real -->
+      <div class="boot-steps-grid">
+        <div class="boot-step active" id="boot-step-terrain">
+          <span class="boot-step-dot"></span>
+          <div class="boot-step-info">
+            <span class="boot-step-name">TERRENO & RADIOMETRÍA</span>
+            <span class="boot-step-desc">Camellones 3D, NDVI y Térmico</span>
+          </div>
+        </div>
+        <div class="boot-step" id="boot-step-engine">
+          <span class="boot-step-dot"></span>
+          <div class="boot-step-info">
+            <span class="boot-step-name">MOTOR BABYLON.JS 9</span>
+            <span class="boot-step-desc">HDR ACES, Sombras 2K e IBL</span>
+          </div>
+        </div>
+        <div class="boot-step" id="boot-step-drones">
+          <span class="boot-step-dot"></span>
+          <div class="boot-step-info">
+            <span class="boot-step-name">FLOTA UAV 3D (.GLB)</span>
+            <span class="boot-step-desc">Multiespectral & Fumigador 40L</span>
+          </div>
+        </div>
+        <div class="boot-step" id="boot-step-trees">
+          <span class="boot-step-dot"></span>
+          <div class="boot-step-info">
+            <span class="boot-step-name">DOSEL FRUTAL & LiDAR</span>
+            <span class="boot-step-desc">390 Árboles Thin Instances</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Canvas de Renderizado WebGL2 / Three.js -->
   <canvas id="webgl-canvas"></canvas>
 
@@ -39,14 +139,23 @@
 
     <!-- Botones de Encendido de Motores, Cámara FPV, Piloto Autónomo y RTH -->
     <div class="autopilot-bar">
+      <button id="btn-drone-selector" class="icon-btn action-pill secondary" title="Cambiar Tipo de Aeronave">
+        <span id="drone-selector-text">Dron: Multiespectral</span>
+      </button>
       <button id="btn-motor-power" class="icon-btn action-pill power-btn" title="Encender/Apagar Motores del Dron (Tecla E)">
         <span id="motor-power-text">Encender Motores</span>
       </button>
       <button id="btn-camera-toggle" class="icon-btn action-pill camera-pill" title="Cambiar Cámara FPV / 3ª Persona (Tecla C)">
         <span id="camera-btn-text">3ª Persona</span>
       </button>
-      <button id="btn-auto-grid" class="icon-btn action-pill" title="Iniciar Misión de Vuelo Autónomo (Tecla M)">
-        <span>Misión Cuadrícula</span>
+      <button id="btn-auto-grid" class="icon-btn action-pill" title="Dirigir el dron automáticamente solo hacia las zonas de Estrés / Alto NDVI (Tecla M)">
+        <span>Modo Automático (Zonas)</span>
+      </button>
+      <button id="btn-randomize-zones" class="icon-btn action-pill secondary" title="Generar al azar nuevas zonas de Estrés y Alto NDVI en el huerto (Tecla G)">
+        <span>Zonas al Azar</span>
+      </button>
+      <button id="btn-open-gis" class="icon-btn action-pill gis-pill" title="Abrir Estación de Trabajo CEAF GeoLab GIS / QGIS y Prescripción VRA (Tecla Q)">
+        <span>🗺️ Visor GIS (QGIS)</span>
       </button>
       <button id="btn-rth" class="icon-btn action-pill warning" title="Retorno Automático a Base (Tecla H)">
         <span>Retorno RTH</span>
@@ -57,6 +166,11 @@
       <!-- Gauge Batería Dron -->
       <div class="battery-pill nominal" id="battery-pill" title="Estado de Batería">
         <span id="battery-pct-text">100%</span>
+      </div>
+
+      <div class="status-pill gamepad-pill" id="gamepad-status-pill" style="display: none;" title="Control de Xbox One Conectado">
+        <span class="gamepad-icon">🎮</span>
+        <span id="gamepad-status-text">XBOX ONE</span>
       </div>
 
       <div class="status-pill healthy" id="system-status-pill">
@@ -131,6 +245,65 @@
         <div class="ndvi-bar-fill" id="hud-ndvi-bar" style="width: 0%;"></div>
       </div>
     </div>
+
+    <!-- Tarjeta HUD del Sistema de Aspersión Fitosanitaria -->
+    <div class="hud-panel sprayer-telemetry hidden" id="sprayer-hud-panel">
+      <div class="hud-title">SISTEMA DE ASPERSIÓN FITOSANITARIA (TANQUE 40L)</div>
+      <div class="sprayer-hud-display">
+        <div class="sprayer-metric-group">
+          <span class="sprayer-label">NIVEL TANQUE LÍQUIDO</span>
+          <div class="sprayer-value-large" id="hud-tank-value">40.0 <span class="unit">L (100%)</span></div>
+        </div>
+        <div class="tank-bar-container">
+          <div class="tank-bar-fill" id="hud-tank-bar" style="width: 100%;"></div>
+        </div>
+        <div class="sprayer-controls-row">
+          <button id="btn-spray-pump" class="action-pill spray-btn" title="Activar/Desactivar Bomba de Aspersión (Barra Espaciadora)">
+            <span id="spray-pump-text">Bomba Aspersión: OFF</span>
+          </button>
+          <select id="select-flow-rate" class="flow-rate-select" title="Seleccionar Caudal de Flujo (L/min)">
+            <option value="2.5">Caudal: 2.5 L/min</option>
+            <option value="4.5" selected>Caudal: 4.5 L/min</option>
+            <option value="8.0">Caudal: 8.0 L/min</option>
+            <option value="12.0">Caudal: 12.0 L/min</option>
+          </select>
+          <button id="btn-refill-tank" class="action-pill refill-btn" title="Recargar Tanque de Producto Fitosanitario">
+            <span>Recargar 40L</span>
+          </button>
+        </div>
+        <div class="sprayer-stats-footer">
+          <span>Aplicado: <strong id="hud-liquid-sprayed">0.0 L</strong></span>
+          <span>Área Tratada: <strong id="hud-area-covered">0 m²</strong></span>
+          <span>Estrés Mitigado: <strong id="hud-stress-recovery" style="color: var(--accent-green);">0%</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Monitor Picture-in-Picture (PiP) de Cámara Nadiral Multiespectral / Térmica (-90° Cenital) -->
+    <div class="hud-panel pip-nadir-panel" id="pip-camera-panel">
+      <div class="pip-header">
+        <div class="pip-title-group">
+          <span class="pip-rec-dot"></span>
+          <span class="hud-title" style="margin-bottom:0;">CÁMARA NADIRAL -90° (PiP)</span>
+        </div>
+        <div class="pip-channel-bar" id="pip-channel-bar">
+          <button class="pip-ch-btn active" data-pip-mode="ndvi" title="Canal NDVI en vivo">NDVI</button>
+          <button class="pip-ch-btn" data-pip-mode="thermal" title="Canal Termografía IR FLIR en vivo">TÉRM</button>
+          <button class="pip-ch-btn" data-pip-mode="elevation" title="Escaneo Láser LiDAR CHM (Altura de Dosel y Volumen TRV)">LiDAR</button>
+          <button class="pip-ch-btn" data-pip-mode="vra" title="Mapa Prescripción VRA en vivo">VRA</button>
+          <button class="pip-ch-btn" data-pip-mode="rgb" title="Óptica RGB Cenital">RGB</button>
+          <button class="pip-minimize-btn" id="btn-pip-minimize" title="Minimizar/Expandir Monitor Nadiral (Tecla V)">_</button>
+        </div>
+      </div>
+      <div class="pip-viewport-wrap" id="pip-viewport-wrap">
+        <canvas id="pip-nadir-canvas" width="290" height="190"></canvas>
+        <div class="pip-telemetry-strip">
+          <span>CENITAL: <strong id="pip-readout-ndvi" style="color:#4ade80;">NDVI 0.78</strong></span>
+          <span>DOSEL: <strong id="pip-readout-temp" style="color:#38bdf8;">22.1°C</strong></span>
+          <span>VRA: <strong id="pip-readout-vra" style="color:#fbbf24;">60 L/ha</strong></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Joysticks Táctiles en Pantalla -->
@@ -146,12 +319,16 @@
       </div>
     </div>
 
-    <!-- Guía de Teclado (Centro Inferior) -->
+    <!-- Guía de Controles (Centro Inferior) -->
     <div class="keyboard-guide" id="keyboard-guide">
-      <div class="guide-title">CONTROLES (TECLADO / PANTALLA TÁCTIL)</div>
-      <div class="key-rows">
+      <div class="guide-title" id="guide-title">CONTROLES (TECLADO / CONTROL XBOX)</div>
+      <div class="key-rows" id="keyboard-guide-rows">
         <div class="key-row"><kbd>W</kbd><kbd>S</kbd> Cabeceo | <kbd>A</kbd><kbd>D</kbd> Alabeo | <kbd>↑</kbd><kbd>↓</kbd> Altitud | <kbd>←</kbd><kbd>→</kbd> Giro</div>
-        <div class="key-row"><kbd>E</kbd> Encender Motores | <kbd>C</kbd> Cámara FPV | <kbd>M</kbd> Cuadrícula | <kbd>H</kbd> RTH</div>
+        <div class="key-row"><kbd>E</kbd> Motores | <kbd>F</kbd> Aspersión | <kbd>C</kbd> Cámara | <kbd>V</kbd> PiP Nadiral | <kbd>Q</kbd> GIS | <kbd>M</kbd> Auto | <kbd>H</kbd> RTH</div>
+      </div>
+      <div class="key-rows" id="gamepad-guide-rows" style="display: none;">
+        <div class="key-row">🎮 <strong>Stick Izq:</strong> Altitud / Giro | <strong>Stick Der:</strong> Cabeceo / Alabeo | <strong>RT / LT:</strong> Acelerar / Frenar</div>
+        <div class="key-row"><kbd>A</kbd> Motores | <kbd>X</kbd> Aspersión | <kbd>B</kbd> RTH | <kbd>Y</kbd> Cámara | <kbd>RB</kbd> Cuadrícula | <kbd>LB</kbd> Dron | <kbd>D-Pad</kbd> Sensores</div>
       </div>
     </div>
 
@@ -223,6 +400,311 @@
       </div>
     </div>
   </aside>
+
+  <!-- Modal de Selección de Tipo de Aeronave (Startup) -->
+  <div class="acquisition-modal-overlay active" id="drone-selector-modal">
+    <div class="acquisition-modal-content drone-select-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2>CEAF DroneLab Chile - Selección de Aeronave</h2>
+          <span class="modal-subtitle">Seleccione el tipo de dron agrícola para iniciar la simulación en el huerto</span>
+        </div>
+      </div>
+
+      <div class="drone-options-grid">
+        <!-- Opción 1: Dron Multiespectral de Monitoreo -->
+        <div class="drone-card active" id="card-select-multispectral" data-drone-type="multispectral" onclick="window.selectDrone && window.selectDrone('multispectral')">
+          <div class="drone-card-badge">MONITOREO SANITARIO</div>
+          <h3>Dron Multiespectral</h3>
+          <p class="drone-card-desc">Equipado con cámara radiométrica multispectral (RGB, NDVI, Térmico IR, LiDAR). Diseñado para fotogrametría y diagnóstico de vigor vegetal.</p>
+          <ul class="drone-features">
+            <li>✔ Sensores RGB, NDVI, Térmico IR y LiDAR</li>
+            <li>✔ Escaneo automático en Cuadrícula</li>
+            <li>✔ Informe Multiespectral 3D Post-Vuelo</li>
+          </ul>
+          <button class="action-pill primary-glow select-drone-btn" id="btn-confirm-multispectral" onclick="window.selectDrone && window.selectDrone('multispectral')">Seleccionar Dron Multiespectral</button>
+        </div>
+
+        <!-- Opción 2: Dron Agrícola de Aspersión Fitosanitaria -->
+        <div class="drone-card" id="card-select-sprayer" data-drone-type="sprayer" onclick="window.selectDrone && window.selectDrone('sprayer')">
+          <div class="drone-card-badge amber">APLICACIÓN FITOSANITARIA</div>
+          <h3>Dron de Aspersión Fitosanitaria</h3>
+          <p class="drone-card-desc">Equipado con tanque de producto (40L) y bombas centrífugas de alta presión. Diseñado para pulverización foliar precisa de frutales.</p>
+          <ul class="drone-features">
+            <li>✔ Tanque de Líquido Payload (40.0 Litros)</li>
+            <li>✔ Nube 3D de Aspersión en Boquillas</li>
+            <li>✔ Caudal Regulable (1.0 a 12.0 L/min)</li>
+          </ul>
+          <button class="action-pill primary-glow select-drone-btn" id="btn-confirm-sprayer" onclick="window.selectDrone && window.selectDrone('sprayer')">Seleccionar Dron de Aspersión</button>
+        </div>
+      </div>
+
+      <!-- Opción Gráfica Sutil Inferior (AMD FidelityFX Super Resolution 1.0) -->
+      <div class="drone-modal-subtle-footer">
+        <label class="subtle-fsr-toggle" for="chk-fsr-toggle" title="Activa el reescalado espacial AMD FidelityFX Super Resolution 1.0 (EASU + RCAS 1.5x) para equipos integrados o pantallas 4K">
+          <input type="checkbox" id="chk-fsr-toggle">
+          <span class="subtle-fsr-text">Activar reescalado <strong>AMD FidelityFX™ Super Resolution (FSR 1.0)</strong> <span class="subtle-fsr-hint">(Desactivado por defecto: Resolución Nativa 100% + MSAA 4x + SSAO2)</span></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Estación de Trabajo CEAF GeoLab GIS (Simulador estilo QGIS 3.34 LTR / Pix4DFields & Prescripción VRA) -->
+  <div class="acquisition-modal-overlay" id="acquisition-modal">
+    <div class="acquisition-modal-content gis-workstation-modal">
+      <!-- Barra de Título Estilo QGIS Desktop -->
+      <div class="modal-header gis-window-header">
+        <div class="modal-title-group">
+          <div class="gis-title-row">
+            <span class="gis-app-badge">QGIS 3.34 LTR / CEAF GeoLab</span>
+            <h2>Proyecto: Predio_Experimental_Rengo_OHiggins.qgz — Análisis Multiespectral y Prescripción VRA</h2>
+          </div>
+          <span class="modal-subtitle">Sistema de Información Geográfica Agronómica | Proyección Activa: EPSG:32719 (WGS 84 / UTM Zone 19S - Valle del Cachapoal)</span>
+        </div>
+        <button class="close-btn" id="btn-close-report-x" title="Cerrar Estación GIS">&times;</button>
+      </div>
+
+      <!-- Barra de Herramientas y KPIs Agronómicos Superiores -->
+      <div class="gis-top-toolbar">
+        <div class="report-filter-bar gis-raster-tabs" id="report-filter-bar">
+          <button class="report-tab" data-report-filter="rgb" title="Ortomosaico Fotogramétrico RGB (2.1 cm/px)">
+            <span>📷 Ortomosaico RGB</span>
+          </button>
+          <button class="report-tab" data-report-filter="ndvi" title="Índice de Vegetación de Diferencia Normalizada (Banda NIR - Red)">
+            <span>🌿 Ráster NDVI</span>
+          </button>
+          <button class="report-tab" data-report-filter="thermal" title="Termografía Infrarroja Radiométrica y Estrés Hídrico CWSI">
+            <span>🌡️ Termografía IR</span>
+          </button>
+          <button class="report-tab" data-report-filter="elevation" title="Modelo Digital de Altura de Dosel (CHM) y Volumen de Copa (TRV m³/ha) por Escaneo LiDAR">
+            <span>🛰️ LiDAR CHM (Altura / TRV)</span>
+          </button>
+          <button class="report-tab active" data-report-filter="vra" title="Mapa de Prescripción de Dosis Variable (VRA) para Pulverización Selectiva">
+            <span>🎯 Prescripción VRA (L/ha)</span>
+          </button>
+        </div>
+
+        <div class="report-summary-bar gis-kpi-strip">
+          <div class="summary-badge">
+            <span class="badge-label">SUPERFICIE CATASTRADA</span>
+            <span class="badge-value green" id="report-badge-coverage">4.00 ha (40,000 m²)</span>
+          </div>
+          <div class="summary-badge">
+            <span class="badge-label">NDVI MEDIO PREDIO</span>
+            <span class="badge-value green" id="report-badge-ndvi">0.76 (Saludable)</span>
+          </div>
+          <div class="summary-badge">
+            <span class="badge-label">TEMP SUELO / DOSEL</span>
+            <span class="badge-value amber" id="report-badge-temp">42.1°C / 23.5°C</span>
+          </div>
+          <div class="summary-badge">
+            <span class="badge-label">ESTADO PRESCRIPCIÓN</span>
+            <span class="badge-value red" id="report-badge-diag">Focos Críticos Detectados</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Área de Trabajo Principal de 3 Columnas (Estilo QGIS Desktop) -->
+      <div class="gis-workspace-grid">
+        <!-- COLUMNA 1: Panel de Capas GIS (Layers Tree) y Simbología -->
+        <aside class="gis-layers-panel">
+          <div class="gis-panel-section">
+            <div class="gis-section-header">
+              <span>🗂️ ÁRBOL DE CAPAS (LAYERS)</span>
+              <span class="gis-crs-tag">EPSG:32719</span>
+            </div>
+            <div class="gis-layer-list">
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-polygons" checked>
+                <span class="layer-icon vector-poly">⬡</span>
+                <span class="layer-name">Poligonos_Anomalias.geojson</span>
+              </label>
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-labels" checked>
+                <span class="layer-icon label-icon">🏷️</span>
+                <span class="layer-name">Etiquetas_Atributos (ID/Dosis)</span>
+              </label>
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-vra-grid" checked>
+                <span class="layer-icon grid-icon">▦</span>
+                <span class="layer-name">Grilla_Zonificacion_VRA_10m</span>
+              </label>
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-route" checked>
+                <span class="layer-icon line-icon">╱</span>
+                <span class="layer-name">Track_Vuelo_GNSS_RTK.gpx</span>
+              </label>
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-trees" checked>
+                <span class="layer-icon point-icon">●</span>
+                <span class="layer-name">Catastro_Frutales_Hileras.shp</span>
+              </label>
+              <label class="gis-layer-item">
+                <input type="checkbox" id="gis-layer-utm" checked>
+                <span class="layer-icon utm-icon">┼</span>
+                <span class="layer-name">Reticula_UTM_19S (50m)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="gis-panel-section">
+            <div class="gis-section-header">
+              <span>🎨 SIMBOLOGÍA Y LEYENDA VRA</span>
+            </div>
+            <div class="gis-symbology-list" id="gis-symbology-box">
+              <div class="symbology-row">
+                <span class="sym-swatch" style="background:#ef4444; border:1px solid #fca5a5;"></span>
+                <div class="sym-text">
+                  <strong>Alta Prioridad (150 L/ha)</strong>
+                  <span>NDVI &lt; 0.36 | Estrés Hídrico Severo</span>
+                </div>
+              </div>
+              <div class="symbology-row">
+                <span class="sym-swatch" style="background:#f59e0b; border:1px solid #fcd34d;"></span>
+                <div class="sym-text">
+                  <strong>Prioridad Media (85 L/ha)</strong>
+                  <span>NDVI 0.36–0.62 | Transición / Moderado</span>
+                </div>
+              </div>
+              <div class="symbology-row">
+                <span class="sym-swatch" style="background:#10b981; border:1px solid #6ee7b7;"></span>
+                <div class="sym-text">
+                  <strong>Exento - Alto Vigor (0 L/ha)</strong>
+                  <span>NDVI &ge; 0.85 | Máxima Transpiración</span>
+                </div>
+              </div>
+              <div class="symbology-row">
+                <span class="sym-swatch" style="background:#22c55e; border:1px solid #86efac;"></span>
+                <div class="sym-text">
+                  <strong>Exento - Vigor Normal (0 L/ha)</strong>
+                  <span>NDVI 0.63–0.84 | Sin Aplicación</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gis-panel-section gis-metadata-box">
+            <div class="gis-section-header">
+              <span>🛰️ METADATOS FOTOGRAMÉTRICOS</span>
+            </div>
+            <div class="gis-meta-grid">
+              <div><span>Predio:</span> <strong>CEAF Rengo, O'Higgins</strong></div>
+              <div><span>Datum:</span> <strong>WGS 84 / UTM 19S</strong></div>
+              <div><span>GSD Ráster:</span> <strong>2.14 cm/píxel</strong></div>
+              <div><span>Sensores:</span> <strong>5B + LWIR + LiDAR</strong></div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- COLUMNA 2: Lienzo Cartográfico Interactivo y Barra de Estado GIS -->
+        <main class="gis-canvas-panel">
+          <div class="report-preview-container gis-map-viewport">
+            <canvas id="report-canvas" width="720" height="460"></canvas>
+            <div class="gis-map-hint">💡 Pasa el cursor para inspeccionar coordenadas UTM y valores de píxel • Haz clic en un polígono para seleccionarlo</div>
+          </div>
+
+          <!-- Barra de Estado Inferior Estilo QGIS (Coordenadas UTM, Inspector de Píxel y Escala) -->
+          <div class="gis-statusbar">
+            <div class="gis-status-cell coords-cell">
+              <span class="status-lbl">UTM 19S / WGS84:</span>
+              <span class="status-val mono" id="gis-status-utm">334800.0 E, 6192400.0 N (-34.4054°S, -70.8582°W)</span>
+            </div>
+            <div class="gis-status-cell pixel-cell">
+              <span class="status-lbl">INSPECTOR PÍXEL:</span>
+              <span class="status-val mono" id="gis-status-pixel">NDVI: 0.75 | Temp: 23.4°C | CHM: 4.3m | VRA: 0 L/ha</span>
+            </div>
+            <div class="gis-status-cell scale-cell">
+              <span class="status-lbl">ESCALA:</span>
+              <span class="status-val mono">1:1,250</span>
+            </div>
+          </div>
+
+          <div class="preview-overlay-info gis-layer-desc" id="report-filter-description">
+            MAPA DE PRESCRIPCIÓN DE DOSIS VARIABLE (VRA): Clasifica automáticamente cada celda de manejo según el índice NDVI, estrés térmico CWSI y volumen de dosel LiDAR (TRV) para aplicar agroquímicos/riego foliar únicamente en los polígonos críticos.
+          </div>
+        </main>
+
+        <!-- COLUMNA 3: Calculadora de Ahorro VRA y Tabla de Atributos Vectorial -->
+        <section class="gis-attributes-panel">
+          <!-- Tarjeta de Balance de Ahorro VRA (Agricultura de Precisión vs Tradicional) -->
+          <div class="gis-vra-savings-card">
+            <div class="gis-section-header">
+              <span>💧 BALANCE DE PRESCRIPCIÓN Y AHORRO VRA</span>
+              <span class="vra-tag">DOSIS VARIABLE</span>
+            </div>
+            <div class="vra-comparison-grid">
+              <div class="vra-stat-box">
+                <span class="vra-stat-label">APLICACIÓN TRADICIONAL (4.0 ha)</span>
+                <span class="vra-stat-value muted" id="gis-conv-volume">600.0 L</span>
+                <span class="vra-stat-sub">Cobertura total @ 150 L/ha</span>
+              </div>
+              <div class="vra-stat-box highlight">
+                <span class="vra-stat-label">PRESCRIPCIÓN VRA SELECTIVA</span>
+                <span class="vra-stat-value cyan" id="gis-vra-volume">88.5 L</span>
+                <span class="vra-stat-sub" id="gis-vra-area">Solo en 0.59 ha con estrés</span>
+              </div>
+              <div class="vra-stat-box savings">
+                <span class="vra-stat-label">AHORRO HÍDRICO Y FITOSANITARIO</span>
+                <span class="vra-stat-value green" id="gis-vra-savings">85.3% AHORRO</span>
+                <span class="vra-stat-sub" id="gis-vra-saved-liters">511.5 L menos al medio ambiente</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabla de Atributos de Polígonos (Estilo QGIS Attribute Table) -->
+          <div class="gis-attribute-table-card">
+            <div class="gis-section-header">
+              <span>📋 TABLA DE ATRIBUTOS — Poligonos_Anomalias.geojson</span>
+              <span class="gis-feature-count" id="gis-feature-count">6 objetos</span>
+            </div>
+            <div class="gis-table-scroll">
+              <table class="gis-attribute-table">
+                <thead>
+                  <tr>
+                    <th>FID</th>
+                    <th>Código</th>
+                    <th>Diagnóstico</th>
+                    <th>UTM (E / N)</th>
+                    <th>Área</th>
+                    <th>NDVI</th>
+                    <th>Temp</th>
+                    <th>CHM / TRV</th>
+                    <th>Dosis VRA</th>
+                    <th>Caldo</th>
+                    <th>Mitigado</th>
+                  </tr>
+                </thead>
+                <tbody id="gis-attribute-tbody">
+                  <!-- Filas dinámicas generadas desde FieldGenerator.getGISPrescriptionData() -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Barra Inferior de Exportación SIG e Integración con Dron de Aspersión -->
+      <div class="modal-footer gis-modal-footer">
+        <div class="gis-export-group">
+          <button id="btn-export-geojson" class="icon-btn action-pill secondary" title="Descargar capa vectorial estándar RFC 7946 (.geojson) compatible con QGIS y ArcGIS">
+            <span>🌍 Exportar Capa .GeoJSON (QGIS)</span>
+          </button>
+          <button id="btn-export-csv" class="icon-btn action-pill secondary" title="Descargar Tabla de Atributos y Prescripción VRA en formato CSV">
+            <span>📊 Exportar Tabla Atributos (.CSV)</span>
+          </button>
+        </div>
+
+        <div class="gis-action-group">
+          <button id="btn-transfer-vra-drone" class="icon-btn action-pill primary-glow vra-execute-btn" title="Transferir los polígonos prescritos al Dron de Aspersión (40L) y ejecutar el vuelo autónomo de aplicación selectiva">
+            <span>🚁 Cargar Prescripción en Dron Fumigador y Ejecutar Vuelo VRA</span>
+          </button>
+          <button id="btn-close-report" class="icon-btn action-pill secondary">
+            <span>Cerrar Visor GIS</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/src/app.js"></script>
 </body>

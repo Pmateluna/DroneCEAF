@@ -54,6 +54,30 @@ class TelemetryStore {
     this.sensorLogs = [];
     this.maxLogs = 100;
 
+    // Drone Aircraft Type: 'multispectral' | 'sprayer'
+    this.selectedDroneType = (typeof window !== 'undefined' && window.initialDroneType) ? window.initialDroneType : 'multispectral';
+    if (typeof window !== 'undefined') {
+      window.telemetryStore = this;
+    }
+
+    // Agricultural Sprayer Telemetry State
+    this.maxTankCapacityL = 40.0;
+    this.tankLevelL = 40.0;
+    this.sprayPumpState = 'off'; // 'off' | 'on'
+    this.flowRateLmin = 4.5; // 1.0 to 12.0 L/min
+    this.totalLiquidSprayedL = 0.0;
+    this.sprayAreaCoveredM2 = 0.0;
+    this.stressRecoveryPct = 0.0;
+
+    // Gamepad Connection State
+    this.gamepadState = {
+      connected: false,
+      id: ''
+    };
+
+    // Graphics Upscaling State (AMD FidelityFX Super Resolution 1.0)
+    this.fsrEnabled = false;
+
     // Subscriptions
     this.listeners = {
       inputChange: [],
@@ -65,8 +89,140 @@ class TelemetryStore {
       missionUpdate: [],
       motorPowerChange: [],
       cameraModeChange: [],
+      missionCompleted: [],
+      droneTypeChange: [],
+      sprayPumpChange: [],
+      tankUpdate: [],
+      flowRateChange: [],
+      gamepadChange: [],
+      fieldRegenerated: [],
+      fsrChange: [],
       logAdded: []
     };
+  }
+
+  setFsrEnabled(enabled) {
+    const next = Boolean(enabled);
+    if (this.fsrEnabled !== next) {
+      this.fsrEnabled = next;
+      this.notify('fsrChange', this.fsrEnabled);
+    }
+  }
+
+  getFsrEnabled() {
+    return this.fsrEnabled;
+  }
+
+  notifyFieldRegenerated() {
+    this.sprayAreaCoveredM2 = 0.0;
+    this.stressRecoveryPct = 0.0;
+    this.notify('tankUpdate', {
+      tankLevelL: this.tankLevelL,
+      maxCapacityL: this.maxTankCapacityL,
+      pct: (this.tankLevelL / this.maxTankCapacityL) * 100,
+      totalSprayedL: this.totalLiquidSprayedL,
+      areaCoveredM2: 0.0,
+      stressRecoveryPct: 0.0
+    });
+    this.notify('fieldRegenerated', {});
+  }
+
+  setGamepadState(connected, id = '') {
+    this.gamepadState = { connected, id };
+    this.notify('gamepadChange', this.gamepadState);
+  }
+
+  getGamepadState() {
+    return this.gamepadState;
+  }
+
+  notifyMissionCompleted(reportData) {
+    this.notify('missionCompleted', reportData);
+  }
+
+  // --- Dual-Drone Platform & Sprayer Methods ---
+  setDroneType(type) {
+    if (['multispectral', 'sprayer'].includes(type)) {
+      this.selectedDroneType = type;
+      this.notify('droneTypeChange', this.selectedDroneType);
+    }
+  }
+
+  getDroneType() {
+    return this.selectedDroneType;
+  }
+
+  toggleSprayPump() {
+    if (this.selectedDroneType !== 'sprayer') return;
+    if (this.tankLevelL <= 0 && this.sprayPumpState === 'off') {
+      this.notify('logAdded', { message: 'Tanque de aspersión vacío (0L). Recargue en base.' });
+      return;
+    }
+    const nextState = this.sprayPumpState === 'off' ? 'on' : 'off';
+    this.setSprayPumpState(nextState);
+  }
+
+  setSprayPumpState(state) {
+    if (['off', 'on'].includes(state) && this.sprayPumpState !== state) {
+      this.sprayPumpState = state;
+      this.notify('sprayPumpChange', this.sprayPumpState);
+    }
+  }
+
+  getSprayPumpState() {
+    return this.sprayPumpState;
+  }
+
+  setFlowRate(rateLmin) {
+    this.flowRateLmin = Math.max(1.0, Math.min(12.0, parseFloat(rateLmin)));
+    this.notify('flowRateChange', this.flowRateLmin);
+  }
+
+  getFlowRate() {
+    return this.flowRateLmin;
+  }
+
+  refillTank() {
+    this.tankLevelL = this.maxTankCapacityL;
+    this.notify('tankUpdate', {
+      tankLevelL: this.tankLevelL,
+      maxCapacityL: this.maxTankCapacityL,
+      pct: 100.0,
+      totalSprayedL: this.totalLiquidSprayedL,
+      areaCoveredM2: this.sprayAreaCoveredM2,
+      stressRecoveryPct: this.stressRecoveryPct
+    });
+    this.notify('logAdded', { message: 'Tanque de aspersión recargado al 100% (40.0 Litros).' });
+  }
+
+  updateSprayCoverage(treatedAreaM2, stressRecoveryPct) {
+    if (treatedAreaM2 !== undefined) {
+      this.sprayAreaCoveredM2 = Math.max(this.sprayAreaCoveredM2, treatedAreaM2);
+    }
+    if (stressRecoveryPct !== undefined) {
+      this.stressRecoveryPct = stressRecoveryPct;
+    }
+  }
+
+  consumeLiquid(amountL) {
+    if (this.sprayPumpState !== 'on') return;
+
+    this.tankLevelL = Math.max(0.0, this.tankLevelL - amountL);
+    this.totalLiquidSprayedL += amountL;
+
+    this.notify('tankUpdate', {
+      tankLevelL: this.tankLevelL,
+      maxCapacityL: this.maxTankCapacityL,
+      pct: (this.tankLevelL / this.maxTankCapacityL) * 100,
+      totalSprayedL: this.totalLiquidSprayedL,
+      areaCoveredM2: this.sprayAreaCoveredM2,
+      stressRecoveryPct: this.stressRecoveryPct
+    });
+
+    if (this.tankLevelL <= 0.0) {
+      this.setSprayPumpState('off');
+      this.notify('logAdded', { message: 'Tanque de aspersión agotado. Bomba apagada automáticamente.' });
+    }
   }
 
   // --- Motor Power Methods ---
@@ -112,14 +268,16 @@ class TelemetryStore {
     return this.flightMode;
   }
 
-  updateMissionProgress(waypointIdx, totalWaypoints, progressPct) {
+  updateMissionProgress(waypointIdx, totalWaypoints, progressPct, zoneName = '') {
     this.waypointIndex = waypointIdx;
     this.totalWaypoints = totalWaypoints;
     this.missionProgressPct = Math.round(progressPct);
+    this.targetZoneName = zoneName;
     this.notify('missionUpdate', {
       waypointIndex: this.waypointIndex,
       totalWaypoints: this.totalWaypoints,
-      progressPct: this.missionProgressPct
+      progressPct: this.missionProgressPct,
+      zoneName: this.targetZoneName
     });
   }
 

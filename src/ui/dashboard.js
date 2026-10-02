@@ -57,28 +57,39 @@ export class Dashboard {
   initSubscriptions() {
     this.store.on('logAdded', (newEntry) => {
       this.addTableRow(newEntry);
-      this.renderChart();
+      if (this.isOpen) {
+        this.renderChart();
+      }
     });
 
     this.store.on('sensorModeChange', () => {
-      this.renderChart();
+      if (this.isOpen) {
+        this.renderChart();
+      }
     });
   }
 
   addTableRow(entry) {
-    if (!this.tableBodyEl) return;
+    if (!this.tableBodyEl || !entry) return;
 
     const emptyRow = this.tableBodyEl.querySelector('.empty-row');
     if (emptyRow) {
       emptyRow.remove();
     }
 
+    const posStr = Array.isArray(entry.position) ? `(${entry.position[0]}, ${entry.position[1]})` : '-';
+    const timestamp = entry.timestamp || new Date().toLocaleTimeString('es-CL');
+    const displayVal = entry.displayValue || entry.message || '-';
+    const color = entry.color || '#38bdf8';
+    const status = entry.status || 'INFO';
+    const statusClass = entry.statusClass || 'badge-cyan';
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${entry.timestamp}</td>
-      <td>(${entry.position[0]}, ${entry.position[1]})</td>
-      <td style="color:${entry.color}; font-weight:700;">${entry.displayValue}</td>
-      <td class="badge-cell"><span class="badge ${entry.statusClass}">${entry.status}</span></td>
+      <td>${timestamp}</td>
+      <td>${posStr}</td>
+      <td style="color:${color}; font-weight:700;">${displayVal}</td>
+      <td class="badge-cell"><span class="badge ${statusClass}">${status}</span></td>
     `;
 
     this.tableBodyEl.insertBefore(tr, this.tableBodyEl.firstChild);
@@ -148,9 +159,10 @@ export class Dashboard {
       // Normalize value to [0, 1] range for chart display
       let normVal = log.ndvi;
       if (mode === 'thermal') {
-        normVal = Math.max(0, Math.min(1, (log.temperatureC - 20) / 20));
+        normVal = Math.max(0, Math.min(1, (log.temperatureC - 20) / 25));
       } else if (mode === 'elevation') {
-        normVal = Math.max(0, Math.min(1, log.elevationM / 10));
+        const chm = log.canopyHeightM !== undefined ? log.canopyHeightM : (log.elevationM || 0);
+        normVal = Math.max(0, Math.min(1, chm / 5.5));
       }
       const y = padT + graphH * (1 - Math.max(0, Math.min(1, normVal)));
       if (idx === 0) ctx.moveTo(x, y);
@@ -180,9 +192,10 @@ export class Dashboard {
     const latestLog = recentLogs[lastIdx];
     let normVal = latestLog.ndvi;
     if (mode === 'thermal') {
-      normVal = Math.max(0, Math.min(1, (latestLog.temperatureC - 20) / 20));
+      normVal = Math.max(0, Math.min(1, (latestLog.temperatureC - 20) / 25));
     } else if (mode === 'elevation') {
-      normVal = Math.max(0, Math.min(1, latestLog.elevationM / 10));
+      const chm = latestLog.canopyHeightM !== undefined ? latestLog.canopyHeightM : (latestLog.elevationM || 0);
+      normVal = Math.max(0, Math.min(1, chm / 5.5));
     }
     const latestY = padT + graphH * (1 - Math.max(0, Math.min(1, normVal)));
 

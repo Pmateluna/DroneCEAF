@@ -1,7 +1,10 @@
+import { GamepadHandler } from './gamepad-handler.js';
+
 /**
  * InputMapper
- * Captures keyboard states and touch joystick signals, translating them into normalized [-1.0, 1.0] TelemetryStore control axes.
- * Handles hotkeys for multispectral views (1-4), Grid Scan Mission (M), Return-To-Home (H), Camera Mode (C), and Motor Power (E).
+ * Captures keyboard states, touch joystick signals, and Xbox One Bluetooth Gamepad inputs,
+ * translating them into normalized [-1.0, 1.0] TelemetryStore control axes.
+ * Handles hotkeys and controller shortcuts for multispectral views (1-4), Grid Scan Mission, Return-To-Home, Camera Mode, and Motor Power.
  */
 export class InputMapper {
   constructor(telemetryStore, flightModel, camera) {
@@ -19,6 +22,9 @@ export class InputMapper {
       right: { x: 0, y: 0 }
     };
 
+    // Initialize Xbox One Gamepad Driver
+    this.gamepadHandler = new GamepadHandler(telemetryStore, flightModel, camera);
+
     this.initKeyboardListeners();
   }
 
@@ -29,15 +35,29 @@ export class InputMapper {
         this.processInputs();
       } else if (e.code === 'KeyE' && this.flightModel) {
         this.flightModel.toggleMotorPower();
+      } else if (e.code === 'Space') {
+        this.store.toggleSprayPump();
       } else if (e.code === 'KeyR' && this.flightModel) {
         this.flightModel.resetPosition();
       } else if (e.code === 'KeyM' && this.flightModel) {
         this.flightModel.startGridMission();
+      } else if (e.code === 'KeyG' && this.flightModel && this.flightModel.field) {
+        this.flightModel.field.regenerateRandomField();
+        this.store.notifyFieldRegenerated();
+        if (this.store.getFlightMode() === 'auto_grid') {
+          this.flightModel.startGridMission();
+        }
       } else if (e.code === 'KeyH' && this.flightModel) {
         this.flightModel.startRTH();
       } else if (e.code === 'KeyC' && this.camera) {
         const mode = this.camera.toggleMode();
         this.store.notify('cameraModeChange', mode);
+      } else if (e.code === 'KeyQ') {
+        const btnGis = document.getElementById('btn-open-gis');
+        if (btnGis) btnGis.click();
+      } else if (e.code === 'KeyV') {
+        const btnPipMin = document.getElementById('btn-pip-minimize');
+        if (btnPipMin) btnPipMin.click();
       } else if (e.code === 'Digit1') {
         this.store.setSensorMode('rgb');
       } else if (e.code === 'Digit2') {
@@ -69,6 +89,13 @@ export class InputMapper {
     this.processInputs();
   }
 
+  update(dt) {
+    if (this.gamepadHandler) {
+      this.gamepadHandler.update();
+      this.processInputs();
+    }
+  }
+
   processInputs() {
     let kbThrottle = 0;
     if (this.keys.ArrowUp) kbThrottle += 1.0;
@@ -86,10 +113,12 @@ export class InputMapper {
     if (this.keys.KeyD) kbRoll += 1.0;
     if (this.keys.KeyA) kbRoll -= 1.0;
 
-    const throttle = Math.max(-1.0, Math.min(1.0, this.joystickState.left.y + kbThrottle));
-    const yaw = Math.max(-1.0, Math.min(1.0, this.joystickState.left.x + kbYaw));
-    const pitch = Math.max(-1.0, Math.min(1.0, this.joystickState.right.y + kbPitch));
-    const roll = Math.max(-1.0, Math.min(1.0, this.joystickState.right.x + kbRoll));
+    const gp = this.gamepadHandler ? this.gamepadHandler.axes : { throttle: 0, yaw: 0, pitch: 0, roll: 0 };
+
+    const throttle = Math.max(-1.0, Math.min(1.0, this.joystickState.left.y + kbThrottle + gp.throttle));
+    const yaw = Math.max(-1.0, Math.min(1.0, this.joystickState.left.x + kbYaw + gp.yaw));
+    const pitch = Math.max(-1.0, Math.min(1.0, this.joystickState.right.y + kbPitch + gp.pitch));
+    const roll = Math.max(-1.0, Math.min(1.0, this.joystickState.right.x + kbRoll + gp.roll));
 
     this.store.setInputs({ throttle, yaw, pitch, roll });
   }

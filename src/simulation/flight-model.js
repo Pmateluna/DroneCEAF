@@ -1,10 +1,12 @@
 /**
  * FlightModel
- * Handles quadcopter flight dynamics, motor ground ignition/shutdown state machine, battery drain, Lawnmower Grid Scan autopilot, and RTH failsafe.
+ * Handles quadcopter flight dynamics, motor ground ignition/shutdown state machine, battery drain,
+ * Targeted Zone Autopilot (visiting only Stressed / High-NDVI zones), and RTH failsafe.
  */
 export class FlightModel {
-  constructor(telemetryStore) {
+  constructor(telemetryStore, fieldGenerator = null) {
     this.store = telemetryStore;
+    this.field = fieldGenerator;
 
     // Dynamics Parameters
     this.maxSpeed = 16.0;
@@ -20,20 +22,93 @@ export class FlightModel {
     this.motorSpinPct = 0.0; // 0.0 (stopped) to 1.0 (full hover RPM)
     this.spinUpDuration = 1.5; // seconds to reach takeoff RPM
 
-    // Autopilot Grid Scan Waypoints
-    this.gridWaypoints = [
-      { x: -60, z: -60 }, { x: -60, z: 60 },
-      { x: -30, z: 60 },  { x: -30, z: -60 },
-      { x: 0, z: -60 },    { x: 0, z: 60 },
-      { x: 30, z: 60 },   { x: 30, z: -60 },
-      { x: 60, z: -60 },   { x: 60, z: 60 }
-    ];
+    // Autopilot Targeted Zone Waypoints
+    this.gridWaypoints = [];
     this.currentWaypointIdx = 0;
-    this.autoFlightAltitude = 12.0;
+    this.autoFlightAltitude = 11.5;
 
     // RTH Parameters
     this.rthAltitude = 14.0;
     this.rthState = 'ascend';
+    this.isAutoMissionCompleted = false;
+  }
+
+  /**
+   * Construye la ruta óptima (Nearest-Neighbor) visitando únicamente las zonas generadas al azar:
+   * - Dron de Aspersión: se dirige exclusivamente a las Zonas Estresadas y realiza pasadas locales de fumigación.
+   * - Dron Multiespectral: visita todas las zonas de interés (Zonas Estresadas + Zonas de Alto NDVI).
+   */
+  buildTargetedWaypoints() {
+    if (!this.field) {
+      this.gridWaypoints = [{ x: -35, z: 25, zoneName: 'Zona 1' }, { x: 35, z: -30, zoneName: 'Zona 2' }];
+      return;
+    }
+
+    const droneType = this.store.getDroneType();
+    const [startX, , startZ] = this.store.getDroneState().position;
+
+    // Seleccionar zonas objetivo según el tipo de aeronave
+    let candidateZones = [];
+    if (droneType === 'sprayer') {
+      // Priorizar zonas estresadas aún no recuperadas al 100%
+      const pendingStress = (this.field.stressZones || []).filter(z => this.field.getZoneRecoveryRatio(z) < 0.85);
+      candidateZones = pendingStress.length > 0 ? [...pendingStress] : [...(this.field.stressZones || [])];
+    } else {
+      // El dron multiespectral inspecciona tanto zonas estresadas como zonas de alto NDVI
+      candidateZones = [...(this.field.anomalyZones || [])];
+    }
+
+    // Ordenar zonas por vecino más cercano (Nearest-Neighbor TSP) desde la posición actual del dron
+    const orderedZones = [];
+    let currX = startX;
+    let currZ = startZ;
+    const remaining = [...candidateZones];
+
+    while (remaining.length > 0) {
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const dx = remaining[i].x - currX;
+        const dz = remaining[i].z - currZ;
+        const d = dx * dx + dz * dz;
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      const chosen = remaining.splice(bestIdx, 1)[0];
+      orderedZones.push(chosen);
+      currX = chosen.x;
+      currZ = chosen.z;
+    }
+
+    // Generar waypoints específicos sobre cada zona objetivo
+    const waypoints = [];
+    orderedZones.forEach((zone, zIdx) => {
+      const zoneIndexLabel = `${zIdx + 1}/${orderedZones.length}: ${zone.name}`;
+      if (droneType === 'sprayer' && zone.type === 'stressed') {
+        // Barrido focalizado sobre la zona estresada para cubrir todo su radio con aspersión
+        const r = Math.min(10, Math.round(zone.radius * 0.42));
+        waypoints.push(
+          { x: zone.x - r, z: zone.z - r, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x + r, z: zone.z - r, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x,     z: zone.z,     zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x - r, z: zone.z + r, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x + r, z: zone.z + r, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel }
+        );
+      } else {
+        // Muestreo puntual sobre el centro y borde interior de cada zona (estresada o alto NDVI)
+        const r = Math.min(6, Math.round(zone.radius * 0.28));
+        waypoints.push(
+          { x: zone.x - r, z: zone.z, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x,     z: zone.z, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel },
+          { x: zone.x + r, z: zone.z, zone, zoneIndex: zIdx + 1, totalZones: orderedZones.length, label: zoneIndexLabel }
+        );
+      }
+    });
+
+    this.gridWaypoints = waypoints;
+    this.totalTargetZones = orderedZones.length;
   }
 
   toggleMotorPower() {
@@ -60,12 +135,12 @@ export class FlightModel {
     if (motorPower === 'off') {
       this.motorSpinPct = 0.0;
       this.isGrounded = true;
-      px = px; py = 0.15; pz = pz;
+      py = 0.15;
       vx = 0; vy = 0; vz = 0;
       pitch = 0; roll = 0;
     } else if (motorPower === 'starting') {
       this.motorSpinPct = Math.min(1.0, this.motorSpinPct + dt / this.spinUpDuration);
-      px = px; py = 0.15; pz = pz;
+      py = 0.15;
       vx = 0; vy = 0; vz = 0;
       if (this.motorSpinPct >= 1.0) {
         this.store.setMotorPower('running');
@@ -73,7 +148,7 @@ export class FlightModel {
       }
     } else if (motorPower === 'stopping') {
       this.motorSpinPct = Math.max(0.0, this.motorSpinPct - (dt / this.spinUpDuration) * 1.2);
-      px = px; py = 0.15; pz = pz;
+      py = 0.15;
       vx = 0; vy = 0; vz = 0;
       if (this.motorSpinPct <= 0.0) {
         this.store.setMotorPower('off');
@@ -86,7 +161,7 @@ export class FlightModel {
     // Pass motor spin percentage to telemetry store for propeller animation
     this.store.motorSpinPct = this.motorSpinPct;
 
-    // Auto ignition when starting Grid Mission or RTH
+    // Auto ignition when starting Autonomous Mission or RTH
     if (flightMode !== 'manual' && motorPower === 'off') {
       this.store.setMotorPower('starting');
       motorPower = 'starting';
@@ -117,34 +192,74 @@ export class FlightModel {
 
     // --- 3. Flight Dynamics (Active when motors running) ---
     if (motorPower === 'running') {
-      if (this.isGrounded && inputs.throttle > 0.1) {
-        this.isGrounded = false; // Lift off
+      // Despegue automático si está en misión autónoma o si el piloto aplica acelerador
+      if (this.isGrounded && (inputs.throttle > 0.1 || flightMode !== 'manual')) {
+        this.isGrounded = false;
       }
 
       if (!this.isGrounded) {
         if (flightMode === 'auto_grid') {
+          if (!this.gridWaypoints || this.gridWaypoints.length === 0) {
+            this.buildTargetedWaypoints();
+          }
+
           const targetWP = this.gridWaypoints[this.currentWaypointIdx];
-          const dx = targetWP.x - px;
-          const dz = targetWP.z - pz;
-          const distToWP = Math.sqrt(dx * dx + dz * dz);
+          if (targetWP) {
+            const dx = targetWP.x - px;
+            const dz = targetWP.z - pz;
+            const distToWP = Math.sqrt(dx * dx + dz * dz);
 
-          const targetY = this.autoFlightAltitude;
-          const dy = targetY - py;
-          vy += dy * 3.0 * dt - vy * this.verticalDamping * dt;
+            const targetY = this.autoFlightAltitude;
+            const dy = targetY - py;
+            vy += dy * 3.2 * dt - vy * this.verticalDamping * dt;
 
-          if (distToWP > 2.0) {
-            const targetYaw = Math.atan2(dx, dz);
-            yaw += (targetYaw - yaw) * Math.min(1.0, 3.0 * dt);
+            // Control inteligente de bomba de aspersión: encender SOLO sobre la zona objetivo estresada
+            const droneType = this.store.getDroneType();
+            if (droneType === 'sprayer' && targetWP.zone) {
+              const distToZoneCenter = Math.hypot(px - targetWP.zone.x, pz - targetWP.zone.z);
+              const shouldSpray = distToZoneCenter <= targetWP.zone.radius * 0.95 && py > 2.5 && this.store.tankLevelL > 0;
+              this.store.setSprayPumpState(shouldSpray ? 'on' : 'off');
+            }
 
-            const speed = 10.0;
-            vx = (dx / distToWP) * speed;
-            vz = (dz / distToWP) * speed;
+            if (distToWP > 1.8) {
+              const targetYaw = Math.atan2(dx, dz);
+              let diffYaw = targetYaw - yaw;
+              while (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
+              while (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
+              yaw += diffYaw * Math.min(1.0, 4.5 * dt);
 
-            pitch = -0.15;
-          } else {
-            this.currentWaypointIdx = (this.currentWaypointIdx + 1) % this.gridWaypoints.length;
-            const progressPct = ((this.currentWaypointIdx + 1) / this.gridWaypoints.length) * 100;
-            this.store.updateMissionProgress(this.currentWaypointIdx, this.gridWaypoints.length, progressPct);
+              // Velocidad más pausada dentro de la zona para permitir muestreo o deposición fitosanitaria óptima
+              const insideZone = targetWP.zone && Math.hypot(px - targetWP.zone.x, pz - targetWP.zone.z) <= targetWP.zone.radius;
+              const speed = insideZone ? 7.5 : 12.5;
+              vx = (dx / distToWP) * speed;
+              vz = (dz / distToWP) * speed;
+
+              pitch = -0.15;
+              roll = 0;
+            } else {
+              if (this.currentWaypointIdx < this.gridWaypoints.length - 1) {
+                this.currentWaypointIdx++;
+                const nextWP = this.gridWaypoints[this.currentWaypointIdx];
+                const progressPct = ((this.currentWaypointIdx + 1) / this.gridWaypoints.length) * 100;
+                this.store.updateMissionProgress(
+                  nextWP.zoneIndex || (this.currentWaypointIdx + 1),
+                  nextWP.totalZones || this.gridWaypoints.length,
+                  progressPct,
+                  nextWP.zone ? nextWP.zone.name : ''
+                );
+              } else {
+                // Todas las zonas objetivo completadas -> Retorno automático a base (RTH)
+                this.store.updateMissionProgress(
+                  this.totalTargetZones || this.gridWaypoints.length,
+                  this.totalTargetZones || this.gridWaypoints.length,
+                  100,
+                  'Completado'
+                );
+                this.isAutoMissionCompleted = true;
+                this.startRTH();
+                flightMode = 'rth';
+              }
+            }
           }
         } else if (flightMode === 'rth') {
           const homeX = 0.0;
@@ -164,22 +279,37 @@ export class FlightModel {
 
             if (distToHome > 2.0) {
               const targetYaw = Math.atan2(dx, dz);
-              yaw += (targetYaw - yaw) * Math.min(1.0, 3.0 * dt);
+              let diffYaw = targetYaw - yaw;
+              while (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
+              while (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
+              yaw += diffYaw * Math.min(1.0, 4.5 * dt);
 
-              const speed = 12.0;
+              const speed = 12.5;
               vx = (dx / distToHome) * speed;
               vz = (dz / distToHome) * speed;
+              pitch = -0.15;
+              roll = 0;
             } else {
               this.rthState = 'descent';
             }
           } else if (this.rthState === 'descent') {
             vx *= 0.8; vz *= 0.8;
             vy = -2.5;
+            pitch = 0; roll = 0;
             if (py <= 0.20) {
               py = 0.15;
               vy = 0;
               this.isGrounded = true;
               this.store.setFlightMode('manual');
+
+              if (this.isAutoMissionCompleted) {
+                this.isAutoMissionCompleted = false;
+                this.store.setMotorPower('stopping');
+                this.store.notifyMissionCompleted({
+                  coveragePct: 100,
+                  timestamp: new Date().toLocaleTimeString('es-CL')
+                });
+              }
             }
           }
         } else {
@@ -214,6 +344,13 @@ export class FlightModel {
         py += vy * dt;
         pz += vz * dt;
 
+        // Agricultural Spray Liquid Tank Consumption
+        if (this.store.getDroneType() === 'sprayer' && this.store.getSprayPumpState() === 'on' && !this.isGrounded) {
+          const flowRateLmin = this.store.getFlowRate();
+          const consumedL = (flowRateLmin / 60.0) * dt;
+          this.store.consumeLiquid(consumedL);
+        }
+
         const minAlt = 0.15;
         const maxAlt = 40.0;
         const fieldLimit = 92.0;
@@ -221,7 +358,7 @@ export class FlightModel {
         if (py <= minAlt) {
           py = minAlt;
           vy = 0;
-          if (inputs.throttle <= 0) {
+          if (inputs.throttle <= 0 && flightMode === 'manual') {
             this.isGrounded = true; // Touchdown
           }
         } else if (py > maxAlt) {
@@ -244,14 +381,24 @@ export class FlightModel {
   }
 
   startGridMission() {
+    this.buildTargetedWaypoints();
     this.currentWaypointIdx = 0;
     this.store.setMotorPower('starting');
     this.store.setFlightMode('auto_grid');
-    this.store.updateMissionProgress(0, this.gridWaypoints.length, 0);
+    const firstWP = this.gridWaypoints[0];
+    this.store.updateMissionProgress(
+      1,
+      this.totalTargetZones || this.gridWaypoints.length,
+      0,
+      firstWP && firstWP.zone ? firstWP.zone.name : ''
+    );
   }
 
   startRTH() {
     this.rthState = 'ascend';
+    if (this.store.getSprayPumpState() === 'on') {
+      this.store.setSprayPumpState('off');
+    }
     this.store.setMotorPower('starting');
     this.store.setFlightMode('rth');
   }

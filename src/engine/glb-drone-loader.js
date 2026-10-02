@@ -1,160 +1,125 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { SceneLoader, TransformNode, Vector3 } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 
 /**
- * GLTFMaterialsPbrSpecularGlossinessExtension
- * Custom Three.js GLTFLoader extension plugin to parse KHR_materials_pbrSpecularGlossiness.
- * Converts diffuseTexture, diffuseFactor, and glossiness into standard MeshStandardMaterial maps.
- */
-class GLTFMaterialsPbrSpecularGlossinessExtension {
-  constructor(parser) {
-    this.name = 'KHR_materials_pbrSpecularGlossiness';
-    this.parser = parser;
-  }
-
-  getMaterialType(materialIndex) {
-    return THREE.MeshStandardMaterial;
-  }
-
-  extendMaterialParams(materialIndex, materialParams) {
-    const parser = this.parser;
-    const materialDef = parser.json.materials[materialIndex];
-
-    if (!materialDef.extensions || !materialDef.extensions[this.name]) {
-      return Promise.resolve();
-    }
-
-    const specGloss = materialDef.extensions[this.name];
-    const pending = [];
-
-    if (specGloss.diffuseTexture) {
-      pending.push(parser.assignTexture(materialParams, 'map', specGloss.diffuseTexture));
-    }
-
-    if (specGloss.diffuseFactor) {
-      materialParams.color = new THREE.Color().fromArray(specGloss.diffuseFactor);
-      materialParams.opacity = specGloss.diffuseFactor[3];
-      if (specGloss.diffuseFactor[3] < 1.0) {
-        materialParams.transparent = true;
-      }
-    }
-
-    if (specGloss.glossinessFactor !== undefined) {
-      materialParams.roughness = 1.0 - specGloss.glossinessFactor;
-    } else {
-      materialParams.roughness = 0.35;
-    }
-    materialParams.metalness = 0.25;
-
-    return Promise.all(pending);
-  }
-}
-
-/**
- * GLBDroneLoader
- * Asynchronously loads the 3D GLB drone asset ('animated_drone_with_camera_free.glb').
- * Auto-centers bounding box, scales to 1.6m wingspan, maps PBR textures, and manages GLTF AnimationMixer for propeller rotor blade rotation.
+ * GLBDroneLoader (Babylon.js 9)
+ * Asynchronously loads 3D GLB drone assets:
+ * - Multispectral Monitoring Drone ('/assets/animated_drone_with_camera_free.glb')
+ * - Agricultural Spray Drone ('/assets/drone_for_agriculture_tagged.glb')
+ * Auto-centers bounding box, scales to realistic wingspans, and manages propeller animations.
  */
 export class GLBDroneLoader {
-  constructor() {
-    this.loader = new GLTFLoader();
-    this.loader.register((parser) => new GLTFMaterialsPbrSpecularGlossinessExtension(parser));
-    this.model = null;
-    this.mixer = null;
-    this.hoverAction = null;
-    this.isLoaded = false;
+  constructor(scene) {
+    this.scene = scene;
   }
 
-  load(url = '/assets/animated_drone_with_camera_free.glb') {
-    return new Promise((resolve, reject) => {
-      this.loader.load(
-        url,
-        (gltf) => {
-          const rawScene = gltf.scene;
+  async loadModel(url, targetWingspan = 1.6) {
+    try {
+      const lastSlash = url.lastIndexOf('/');
+      const rootUrl = lastSlash !== -1 ? url.substring(0, lastSlash + 1) : '';
+      const filename = lastSlash !== -1 ? url.substring(lastSlash + 1) : url;
 
-          // Compute exact bounding box of loaded GLB model
-          const box = new THREE.Box3().setFromObject(rawScene);
-          const size = new THREE.Vector3();
-          box.getSize(size);
-          const center = new THREE.Vector3();
-          box.getCenter(center);
+      const result = await SceneLoader.ImportMeshAsync('', rootUrl, filename, this.scene);
+      const rootMesh = result.meshes[0];
 
-          console.log('[GLB Drone Loader] Original Box Size:', size, 'Center:', center);
+      // Configurar AnimationGroup ('hover') antes de medir bounding box:
+      // IMPORTANTE: No llamar .reset() en 'exploded_view' ni 'step_by_step', ya que el fotograma 0 de 'step_by_step'
+      // desarma todas las piezas del dron en el suelo.
+      let hoverGroup = null;
+      if (result.animationGroups && result.animationGroups.length > 0) {
+        result.animationGroups.forEach((ag) => {
+          if (ag.name.toLowerCase().includes('hover')) {
+            hoverGroup = ag;
+          } else {
+            ag.stop();
+          }
+        });
+        if (!hoverGroup) {
+          hoverGroup = result.animationGroups[0];
+        }
 
-          // Create wrapper container
-          this.model = new THREE.Group();
-          
-          // Center rawScene geometry so center is at (0, 0, 0) and bottom is at Y = 0
-          rawScene.position.set(-center.x, -box.min.y, -center.z);
-          this.model.add(rawScene);
-
-          // Target wingspan scale ~1.6m
-          const maxDim = Math.max(size.x, size.z);
-          const desiredScale = maxDim > 0 ? 1.6 / maxDim : 0.03;
-          this.model.scale.set(desiredScale, desiredScale, desiredScale);
-
-          console.log(`[GLB Drone Loader] Applied Scale: ${desiredScale.toFixed(4)}`);
-
-          // Ensure all mesh materials have proper shadow settings and texture rendering
-          this.model.traverse((child) => {
-            if (child.isMesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (child.material) {
-                child.material.side = THREE.DoubleSide;
-                child.material.depthWrite = true;
-                child.material.depthTest = true;
-                if (child.material.map) {
-                  child.material.map.needsUpdate = true;
+        if (hoverGroup) {
+          // En 'hover', el hueso raíz 'Center.3_3' tiene una pista de traslación que salta de Y=5.0 (reposo)
+          // a Y=16.596 al iniciar la animación, causando que el dron se teletransporte hacia arriba al encender motores.
+          // Fijamos todas las claves de posición de 'Center' en su pose de reposo (0, 5, 0) para eliminar el salto.
+          if (hoverGroup.targetedAnimations) {
+            hoverGroup.targetedAnimations.forEach((ta) => {
+              const targetName = (ta.target && ta.target.name) ? ta.target.name.toLowerCase() : '';
+              const prop = ta.animation ? ta.animation.targetProperty : '';
+              if (targetName.includes('center') && prop === 'position') {
+                const restPos = ta.target.position ? ta.target.position.clone() : new Vector3(0, 5, 0);
+                const keys = ta.animation.getKeys();
+                if (keys) {
+                  for (let i = 0; i < keys.length; i++) {
+                    keys[i].value.copyFrom(restPos);
+                  }
                 }
               }
-            }
-          });
-
-          // Setup Animation Mixer
-          if (gltf.animations && gltf.animations.length > 0) {
-            this.mixer = new THREE.AnimationMixer(rawScene);
-
-            // Find 'hover' animation clip or fallback to first clip
-            const hoverClip = gltf.animations.find(a => a.name.toLowerCase().includes('hover')) || gltf.animations[0];
-            if (hoverClip) {
-              this.hoverAction = this.mixer.clipAction(hoverClip);
-              this.hoverAction.setEffectiveTimeScale(1.0);
-              this.hoverAction.play();
-              // Initially paused when drone is powered OFF
-              this.hoverAction.paused = true;
-            }
+            });
           }
 
-          this.isLoaded = true;
-          console.log('[CEAF DroneLab Chile] 3D GLB Drone loaded with textures successfully!');
-          resolve(this.model);
-        },
-        (xhr) => {
-          if (xhr.lengthComputable) {
-            const percent = (xhr.loaded / xhr.total) * 100;
-          }
-        },
-        (err) => {
-          console.error('[CEAF DroneLab Chile] Error loading GLB drone model:', err);
-          reject(err);
+          hoverGroup.start(true, 1.0);
+          hoverGroup.pause();
         }
-      );
-    });
+      }
+
+      rootMesh.computeWorldMatrix(true);
+
+      // Calculate hierarchy bounding vectors
+      const hierarchyBounding = rootMesh.getHierarchyBoundingVectors(true);
+      const min = hierarchyBounding.min;
+      const max = hierarchyBounding.max;
+      const size = max.subtract(min);
+      const center = min.add(max).scale(0.5);
+
+      console.log(`[Babylon GLB Drone Loader] Asset "${url}" Size:`, size, 'Center:', center);
+
+      // Create wrapper node to center and scale the drone
+      const wrapper = new TransformNode(`drone-wrapper-${filename}`, this.scene);
+      rootMesh.parent = wrapper;
+      rootMesh.position.set(-center.x, -min.y, -center.z);
+
+      const maxDim = Math.max(size.x, size.z);
+      const desiredScale = maxDim > 0 ? targetWingspan / maxDim : 0.03;
+      wrapper.scaling.setAll(desiredScale);
+
+      // Collect rotor blade meshes (for drones without skeletal hoverGroup, e.g., sprayer drone)
+      const propMeshes = [];
+      const checkProp = (node) => {
+        const name = (node.name || '').toLowerCase();
+        if (name.includes('blade') || name.includes('rotor')) {
+          node.spinDir = propMeshes.length % 2 === 0 ? 1 : -1;
+          propMeshes.push(node);
+        }
+      };
+
+      result.meshes.forEach((mesh) => {
+        mesh.receiveShadows = true;
+        checkProp(mesh);
+      });
+      if (result.transformNodes) {
+        result.transformNodes.forEach(checkProp);
+      }
+
+      console.log(`[CEAF DroneLab Chile] Loaded Babylon GLB asset "${url}" successfully.`);
+      return {
+        model: wrapper,
+        rootMesh,
+        meshes: result.meshes,
+        animationGroup: hoverGroup,
+        propMeshes
+      };
+    } catch (err) {
+      console.error(`[CEAF DroneLab Chile] Error loading GLB asset "${url}":`, err);
+      throw err;
+    }
   }
 
-  update(dt, motorSpinPct = 0.0, motorPower = 'off') {
-    if (this.mixer) {
-      if (motorPower === 'off') {
-        if (this.hoverAction) this.hoverAction.paused = true;
-      } else {
-        if (this.hoverAction) {
-          this.hoverAction.paused = false;
-          // Scale propeller animation speed dynamically with motorSpinPct (0.0 to 1.0)
-          this.hoverAction.setEffectiveTimeScale(motorSpinPct * 2.5);
-        }
-        this.mixer.update(dt);
-      }
-    }
+  loadMultispectralDrone(url = '/assets/animated_drone_with_camera_free.glb') {
+    return this.loadModel(url, 1.6);
+  }
+
+  loadSprayerDrone(url = '/assets/drone_for_agriculture_tagged.glb') {
+    return this.loadModel(url, 1.85);
   }
 }

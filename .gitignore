@@ -1,6 +1,10 @@
-# Large / Unused Assets
+# Large / Unused Assets & Heavy Backups
 tree_pack_v1.glb
 **/tree_pack_v1.glb
+*.original.glb
+**/*.original.glb
+*.backup.*
+/assets/
 
 # Dependencies
 node_modules/
